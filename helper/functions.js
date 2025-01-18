@@ -1,5 +1,6 @@
 require('dotenv').config()
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 const sendEmail = async ({subject, message, to}) => {
     const transporter = nodemailer.createTransport({
@@ -26,4 +27,16 @@ const sendEmail = async ({subject, message, to}) => {
     }
 }
 
-module.exports = { sendEmail };
+const generatePasswordHash = (password) => {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+    return { salt, hash };
+};
+
+const verifyPassword = (password, salt, hash) => {
+    const derivedHash = crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+    return derivedHash === hash;
+};
+
+
+module.exports = { sendEmail, generatePasswordHash, verifyPassword };

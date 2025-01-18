@@ -1,7 +1,7 @@
 const Joi = require("joi").extend(require("joi-phone-number"));
 const jwt = require("jsonwebtoken");
 const argon2 = require("argon2");
-const { sendEmail } = require("../../helper/functions");
+const { sendEmail, generatePasswordHash } = require("../../helper/functions");
 const User = require("../../models/User");
 
 const authCrtl = {
@@ -12,9 +12,9 @@ const authCrtl = {
       const schema = Joi.object({
         phone: Joi.string()
           .phoneNumber({
-            defaultCountry: "PK", // Set a default country code, e.g., US
-            format: "international", // Ensures the phone number is in E.164 format
-            strict: true, // Only accept valid numbers
+            defaultCountry: "PK", // Default country code
+            format: "international", // E.164 format
+            strict: true, // Only valid numbers
           })
           .required()
           .messages({
@@ -23,14 +23,20 @@ const authCrtl = {
           }),
         email: Joi.string().email().required(),
         password: Joi.string()
-          .min(6)
-          .pattern(new RegExp("^(?=.*[A-Z])(?=.*[!@#$&*]).*$"))
-          .required(),
-        first_name: Joi.string().required(),
+          .pattern(new RegExp("^(?=.*[A-Z])(?=.*[!@#$&*])(?=.*[0-9]).{8,}$"))
+          .required()
+          .messages({
+            "string.pattern.base":
+              "Password must contain at least one uppercase letter, one special character, one number, and be at least 8 characters long.",
+          }),
+        country: Joi.string().required(),
         middle_name: Joi.string().optional(),
+        first_name: Joi.string().required(),
         last_name: Joi.string().required(),
-        bio: Joi.string().min(1).optional(),
-        dob: Joi.date().optional(),
+        bio: Joi.string().optional(),
+        dob: Joi.date().less("now").required().messages({
+          "date.less": "Date of birth must be in the past.",
+        }),
         gender: Joi.string().valid("male", "female", "other").required(),
         location: Joi.object({
           lat: Joi.number().required(),
@@ -61,7 +67,7 @@ const authCrtl = {
                 .required(),
               organization: Joi.string().required(),
               start_date: Joi.date().required(),
-              end_date: Joi.date().optional(),
+              end_date: Joi.date().optional().allow(null),
               current_job_status: Joi.boolean().required(),
               description: Joi.string().optional(),
               location: Joi.string().optional(),
@@ -70,49 +76,63 @@ const authCrtl = {
                 .required(),
               skills: Joi.array().items(Joi.string()).optional(),
               media: Joi.array().items(Joi.string()).optional(),
+            }).custom((value, helpers) => {
+              // Custom validation for `end_date` and `current_job_status`
+              if (value.current_job_status && value.end_date) {
+                return helpers.message(
+                  "End date should not be entered if current job status is true."
+                );
+              }
+              return value; // Validation passed
             })
           )
           .optional(),
       });
-
+  
       // Validate Input
-      const { error, value } = schema.validate(req.body);
-      if (error)
-        return res.status(400).json({ error: error.details[0].message });
-
+      const { error, value } = schema.validate(req.body, { abortEarly: false }); // Validate all fields
+      if (error) {
+        return res.status(400).json({
+          error: error.details.map((detail) => detail.message), // Send all validation errors
+        });
+      }
+  
       value.email = value.email.toLowerCase();
-
+  
       // Check for Existing User
       const existingUser = await User.findOne({
         $or: [{ email: value.email }, { phone: value.phone }],
       });
-      if (existingUser)
+      if (existingUser) {
         return res.status(400).json({ error: "User already exists!" });
-
+      }
+  
       // Hash Password
-      const hashedPassword = await argon2.hash(value.password);
-
+      const {salt, hash} = generatePasswordHash(value.password);
+      value.salt = salt
+  
       // Create User
       const user = new User({
         ...value,
-        password: hashedPassword,
+        password: hash,
       });
-
+  
       await user.save();
-
+  
       // Generate Access Token
       const access_token = createAccessToken({ id: user._id });
-
+  
       // Send Welcome Email
       await sendEmail({
         to: user.email,
         subject: "Welcome to Hire",
         message: "Welcome to the hiring app!",
       });
-
-      res
-        .status(201)
-        .json({ success: "Registration successful", access_token });
+  
+      res.status(201).json({
+        success: "Registration successful",
+        access_token,
+      });
     } catch (err) {
       console.error(err.message);
       res.status(500).json({ error: "Internal Server Error" });

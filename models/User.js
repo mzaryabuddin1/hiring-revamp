@@ -16,8 +16,7 @@ const userSchema = new mongoose.Schema(
     dob: { type: Date, required: true },
     gender: { type: String, enum: ["male", "female", "other"], required: true },
     country: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Country",
+      type: String,
       required: true,
     },
     location: {

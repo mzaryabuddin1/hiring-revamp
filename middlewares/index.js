@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
-const Admin_users = require('../models/Admin_users');
+const User = require('../models/User');
 
-const adminAuth = (req, res, next) => {
+const Auth = (req, res, next) => {
     try {
 
         // Check if the Authorization header exists in the request
@@ -17,7 +17,7 @@ const adminAuth = (req, res, next) => {
         if (!token)
             return res.status(401).json({ error: "Authentication token is required!" });
 
-        jwt.verify(token, process.env.ADMIN_ACCESS_TOKEN_SECRET, async (err, user) => {
+        jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, async (err, user) => {
             if (err)
                 return res.status(401).json({ error: "Invalid Authentication!" });
 
@@ -26,12 +26,15 @@ const adminAuth = (req, res, next) => {
 
             // Find the user record based on the _id from the token
             try {
-                const record = await Admin_users.findById(id)
+                const record = await User.findById(id);
                 if (!record) 
                     return res.status(404).json({ error: "User does not exist!" });
 
 
-                if (!record.status)
+                if (record.status === "inactive")
+                    return res.status(403).json({ error: "Account status is inactive." });
+
+                if (record.status === "blocked")
                     return res.status(403).json({ error: "Account status is blocked." });
 
                 next();
@@ -46,5 +49,5 @@ const adminAuth = (req, res, next) => {
     }
 }
 
-module.exports = adminAuth
+module.exports = Auth
 

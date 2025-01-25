@@ -35,7 +35,7 @@ const userSchema = new mongoose.Schema(
     ],
     address: { type: String },
     verified: { type: Boolean, default: false },
-    passwordResetOTP: { type: Number },
+    passwordResetOTP: { type: String },
     passwordResetOTPExpires: { type: Date },
     lastLogin: { type: Date },
     status: {

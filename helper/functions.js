@@ -15,7 +15,7 @@ const sendEmail = async ({subject, message, to}) => {
 
     try {
         await transporter.sendMail({
-            from: `"Inventory System" <${process.env.EMAIL}>`,
+            from: `"Hiring" <${process.env.EMAIL}>`,
             to,
             subject: subject,
             html: message,

@@ -1,7 +1,11 @@
 const Joi = require("joi").extend(require("joi-phone-number"));
 const jwt = require("jsonwebtoken");
 const argon2 = require("argon2");
-const { sendEmail, generatePasswordHash } = require("../../helper/functions");
+const {
+  sendEmail,
+  generatePasswordHash,
+  verifyPassword,
+} = require("../../helper/functions");
 const User = require("../../models/User");
 
 const authCrtl = {
@@ -88,17 +92,17 @@ const authCrtl = {
           )
           .optional(),
       });
-  
+
       // Validate Input
       const { error, value } = schema.validate(req.body, { abortEarly: false }); // Validate all fields
       if (error) {
         return res.status(400).json({
-          error: error.details.map((detail) => detail.message), // Send all validation errors
+          error: error.details[0].message, // Send all validation errors
         });
       }
-  
+
       value.email = value.email.toLowerCase();
-  
+
       // Check for Existing User
       const existingUser = await User.findOne({
         $or: [{ email: value.email }, { phone: value.phone }],
@@ -106,29 +110,29 @@ const authCrtl = {
       if (existingUser) {
         return res.status(400).json({ error: "User already exists!" });
       }
-  
+
       // Hash Password
-      const {salt, hash} = generatePasswordHash(value.password);
-      value.salt = salt
-  
+      const { salt, hash } = generatePasswordHash(value.password);
+      value.salt = salt;
+
       // Create User
       const user = new User({
         ...value,
         password: hash,
       });
-  
+
       await user.save();
-  
+
       // Generate Access Token
       const access_token = createAccessToken({ id: user._id });
-  
+
       // Send Welcome Email
       await sendEmail({
         to: user.email,
         subject: "Welcome to Hire",
         message: "Welcome to the hiring app!",
       });
-  
+
       res.status(201).json({
         success: "Registration successful",
         access_token,
@@ -144,9 +148,22 @@ const authCrtl = {
     try {
       // Define Joi Schema
       const schema = Joi.object({
-        email: Joi.string().email().required(),
-        password: Joi.string().required(),
-      });
+        // email: Joi.string().email().optional(),
+        phone: Joi.string()
+          .phoneNumber({
+            defaultCountry: "PK",
+            format: "international",
+            strict: true,
+          })
+          .required(),
+          password: Joi.string()
+          .pattern(new RegExp("^(?=.*[A-Z])(?=.*[!@#$&*])(?=.*[0-9]).{8,}$"))
+          .required()
+          .messages({
+            "string.pattern.base":
+              "Password must contain at least one uppercase letter, one special character, one number, and be at least 8 characters long.",
+          }),
+      }).required(); // Require either email or phone, but not both
 
       // Validate Input
       const { error, value } = schema.validate(req.body);
@@ -154,11 +171,16 @@ const authCrtl = {
         return res.status(400).json({ error: error.details[0].message });
 
       // Find User
-      const user = await User.findOne({ email: value.email.toLowerCase() });
+      const user = await User.findOne({ phone: value.phone });
       if (!user) return res.status(400).json({ error: "User not found" });
 
       // Verify Password
-      const validPassword = await argon2.verify(user.password, value.password);
+      const validPassword = verifyPassword(
+        value.password,
+        user.salt,
+        user.password
+      );
+      console.log(validPassword);
       if (!validPassword)
         return res.status(400).json({ error: "Incorrect password" });
 
@@ -177,8 +199,15 @@ const authCrtl = {
     try {
       // Define Joi Schema
       const schema = Joi.object({
-        email: Joi.string().email().required(),
-      });
+        email: Joi.string().email().optional(),
+        phone: Joi.string()
+          .phoneNumber({
+            defaultCountry: "PK",
+            format: "international",
+            strict: true,
+          })
+          .optional(),
+      }).xor("email", "phone"); // Require either email or phone, but not both
 
       // Validate Input
       const { error, value } = schema.validate(req.body);
@@ -186,7 +215,9 @@ const authCrtl = {
         return res.status(400).json({ error: error.details[0].message });
 
       // Find User
-      const user = await User.findOne({ email: value.email.toLowerCase() });
+      const user = await User.findOne({
+        $or: [{ email: value.email?.toLowerCase() }, { phone: value.phone }],
+      });
       if (!user) return res.status(400).json({ error: "User not found" });
 
       // Generate OTP
@@ -199,14 +230,19 @@ const authCrtl = {
 
       await user.save();
 
-      // Send OTP Email
-      await sendEmail({
-        to: user.email,
-        subject: "Password Reset OTP",
-        message: `Your OTP is ${otp}. It is valid for 5 minutes.`,
-      });
+      // Send OTP Email or SMS
+      if (value.email) {
+        await sendEmail({
+          to: user.email,
+          subject: "Password Reset OTP",
+          message: `Your OTP is ${otp}. It is valid for 5 minutes.`,
+        });
+      } else {
+        // SMS logic if needed
+        console.log(`OTP sent to phone ${user.phone}: ${otp}`);
+      }
 
-      res.status(200).json({ success: "OTP sent to your email" });
+      res.status(200).json({ success: "OTP sent successfully" });
     } catch (err) {
       console.error(err.message);
       res.status(500).json({ error: "Internal Server Error" });
@@ -218,13 +254,23 @@ const authCrtl = {
     try {
       // Define Joi Schema
       const schema = Joi.object({
-        email: Joi.string().email().required(),
+        email: Joi.string().email().optional(),
+        phone: Joi.string()
+          .phoneNumber({
+            defaultCountry: "PK",
+            format: "international",
+            strict: true,
+          })
+          .optional(),
         password: Joi.string()
-          .min(6)
-          .pattern(new RegExp("^(?=.*[A-Z])(?=.*[!@#$&*]).*$"))
-          .required(),
+          .pattern(new RegExp("^(?=.*[A-Z])(?=.*[!@#$&*])(?=.*[0-9]).{8,}$"))
+          .required()
+          .messages({
+            "string.pattern.base":
+              "Password must contain at least one uppercase letter, one special character, one number, and be at least 8 characters long.",
+          }),
         otp: Joi.string().length(6).required(),
-      });
+      }).xor("email", "phone"); // Require either email or phone, but not both
 
       // Validate Input
       const { error, value } = schema.validate(req.body);
@@ -232,7 +278,9 @@ const authCrtl = {
         return res.status(400).json({ error: error.details[0].message });
 
       // Find User
-      const user = await User.findOne({ email: value.email.toLowerCase() });
+      const user = await User.findOne({
+        $or: [{ email: value.email?.toLowerCase() }, { phone: value.phone }],
+      });
       if (!user) return res.status(400).json({ error: "User not found" });
 
       // Validate OTP
@@ -241,11 +289,12 @@ const authCrtl = {
       if (new Date() > user.passwordResetOTPExpires)
         return res.status(400).json({ error: "OTP expired" });
 
-      // Hash New Password
-      const hashedPassword = await argon2.hash(value.password);
 
       // Update Password and Clear OTP
-      user.password = hashedPassword;
+      const { salt, hash } = generatePasswordHash(value.password);
+      user.password = hash;
+      user.salt = salt;
+      user.passwordOTPUsed = true;
       user.passwordResetOTP = null;
       user.passwordResetOTPExpires = null;
 

@@ -14,7 +14,7 @@ const countryCrtl = {
       }
 
       const countries = await Country.find(filter);
-      res.status(200).json(countries);
+      res.status(200).json({ success: "Fetch Successfully", data: countries});
 
     } catch (error) {
       res.status(500).json({ error: error.message });

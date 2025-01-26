@@ -1,6 +1,6 @@
 const Joi = require("joi").extend(require("joi-phone-number"));
 const jwt = require("jsonwebtoken");
-const argon2 = require("argon2");
+// const argon2 = require("argon2");
 const {
   sendEmail,
   generatePasswordHash,
@@ -112,8 +112,8 @@ const authCrtl = {
       }
 
       // Hash Password
-      const { salt, hash } = generatePasswordHash(value.password);
-      value.salt = salt;
+      const hash = generatePasswordHash(value.password);
+      value.salt = "salt";
 
       // Create User
       const user = new User({
@@ -177,10 +177,11 @@ const authCrtl = {
       // Verify Password
       const validPassword = verifyPassword(
         value.password,
-        user.salt,
+        "salt",
         user.password
       );
-      console.log(validPassword);
+      console.log(value.password, user.password)
+
       if (!validPassword)
         return res.status(400).json({ error: "Incorrect password" });
 
@@ -291,9 +292,9 @@ const authCrtl = {
 
 
       // Update Password and Clear OTP
-      const { salt, hash } = generatePasswordHash(value.password);
+      const hash = generatePasswordHash(value.password);
       user.password = hash;
-      user.salt = salt;
+      user.salt = "salt";
       user.passwordOTPUsed = true;
       user.passwordResetOTP = null;
       user.passwordResetOTPExpires = null;
